@@ -1,0 +1,28 @@
+# Global ignores
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
+dist/
+.env
+.vscode/
+.idea/
+*.iml
+
+# Ignore Go binaries and build artifacts
+/back/bin/
+/back/build/
+/back/*.exe
+/back/*.out
+
+# Ignore frontend build output (Vite/Vue)
+# You might adjust these if your output dir is different
+/front/dist/
+/front/node_modules/
+/front/.env
+/front/.env.*.local
+/front/.vite
+
+# Optional: OS-specific
+*.swp
+*.swo
