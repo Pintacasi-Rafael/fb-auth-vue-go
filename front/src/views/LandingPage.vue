@@ -36,16 +36,25 @@ function parseJwt(token) {
 
 onMounted(() => {
   const token = localStorage.getItem('jwtToken') || ''
+  console.log('Retrieved token from localStorage:', token)
+
   if (!token) {
-    router.push('/')
+    console.warn('No token found, redirecting...')
+    router.push({ path: '/', query: { sessionExpired: 1 } })
     return
   }
   jwtToken.value = token
 
   const payload = parseJwt(token)
+  console.log('Parsed payload:', payload)
+
   if (payload) {
     userName.value = payload.name || ''
     userEmail.value = payload.email || ''
+  } else {
+    console.warn('Invalid token, clearing and redirecting...')
+    localStorage.removeItem('jwtToken')
+    router.push({ path: '/', query: { sessionExpired: 1 } })
   }
 })
 

@@ -41,10 +41,7 @@ func main() {
 	http.HandleFunc("/auth/facebook/callback", facebookCallbackHandler)
 
 	fmt.Println("Server running at http://localhost:8080")
-	err = http.ListenAndServe(":8080", nil)
-	if err != nil {
-		log.Fatal(err)
-	}
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func facebookCallbackHandler(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +63,6 @@ func facebookCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// === Pre-check if user exists ===
 	var exists bool
 	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE facebook_id = ?)", fbUser.ID).Scan(&exists)
 	if err != nil {
@@ -75,57 +71,48 @@ func facebookCallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if exists {
-		// Update user info
 		_, err = db.Exec(`
 			UPDATE users SET name=?, email=?, first_name=?, last_name=?, profile_pic=?, gender=?, locale=?
 			WHERE facebook_id=?
 		`, fbUser.Name, fbUser.Email, fbUser.FirstName, fbUser.LastName, fbUser.Picture.Data.Url, fbUser.Gender, fbUser.Locale, fbUser.ID)
-		if err != nil {
-			http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
 	} else {
-		// Insert new user
 		_, err = db.Exec(`
 			INSERT INTO users (facebook_id, name, email, first_name, last_name, profile_pic, gender, locale)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		`, fbUser.ID, fbUser.Name, fbUser.Email, fbUser.FirstName, fbUser.LastName, fbUser.Picture.Data.Url, fbUser.Gender, fbUser.Locale)
-		if err != nil {
-			http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+	}
+	if err != nil {
+		http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-// Generate JWT token
-token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-	"facebook_id": fbUser.ID,
-	"name":        fbUser.Name,
-	"email":       fbUser.Email,
-	"exp":         time.Now().Add(72 * time.Hour).Unix(),
-})
+	// Generate JWT
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"facebook_id": fbUser.ID,
+		"name":        fbUser.Name,
+		"email":       fbUser.Email,
+		"exp":         time.Now().Add(72 * time.Hour).Unix(),
+	})
 
-tokenString, err := token.SignedString(jwtSecret)
-if err != nil {
-	http.Error(w, "Token generation failed: "+err.Error(), http.StatusInternalServerError)
-	return
-}
+	tokenString, err := token.SignedString(jwtSecret)
+	if err != nil {
+		http.Error(w, "Token generation failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-// Redirect to frontend with token
-redirectURL := fmt.Sprintf("http://localhost:5173/?token=%s", url.QueryEscape(tokenString))
-http.Redirect(w, r, redirectURL, http.StatusFound)
-  
+	// Redirect to frontend with token in query param
+	redirectURL := fmt.Sprintf("http://localhost:5173/?token=%s", url.QueryEscape(tokenString))
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 func getFacebookAccessToken(code string) (string, error) {
-	tokenEndpoint := "https://graph.facebook.com/v17.0/oauth/access_token"
-
 	params := url.Values{}
 	params.Set("client_id", fbAppID)
 	params.Set("client_secret", fbAppSecret)
 	params.Set("redirect_uri", "http://localhost:8080/auth/facebook/callback")
 	params.Set("code", code)
 
-	resp, err := http.Get(tokenEndpoint + "?" + params.Encode())
+	resp, err := http.Get("https://graph.facebook.com/v17.0/oauth/access_token?" + params.Encode())
 	if err != nil {
 		return "", err
 	}
@@ -133,8 +120,6 @@ func getFacebookAccessToken(code string) (string, error) {
 
 	var res struct {
 		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 		return "", err
@@ -154,22 +139,21 @@ type FacebookUser struct {
 		} `json:"data"`
 	} `json:"picture"`
 	Gender *string `json:"gender,omitempty"`
-  Locale *string `json:"locale,omitempty"`
+	Locale *string `json:"locale,omitempty"`
 }
 
 func getFacebookUser(accessToken string) (*FacebookUser, error) {
-  userInfoEndpoint := "https://graph.facebook.com/me?fields=id,name,email,first_name,last_name,picture,locale,gender&access_token=" + url.QueryEscape(accessToken)
+	endpoint := "https://graph.facebook.com/me?fields=id,name,email,first_name,last_name,picture,locale,gender&access_token=" + url.QueryEscape(accessToken)
 
-
-	resp, err := http.Get(userInfoEndpoint)
+	resp, err := http.Get(endpoint)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var fbUser FacebookUser
-	if err := json.NewDecoder(resp.Body).Decode(&fbUser); err != nil {
+	var user FacebookUser
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
 		return nil, err
 	}
-	return &fbUser, nil
+	return &user, nil
 }
